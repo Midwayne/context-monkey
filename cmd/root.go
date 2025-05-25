@@ -17,6 +17,9 @@ var rootCmd = &cobra.Command{
 			You can concatenate files, generate file trees and more, with
 			options to ignore specific files or directories and specify output locations.`,
 	Version: "0.0.1",
+	Run: func(cmd *cobra.Command, args []string) {
+
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
