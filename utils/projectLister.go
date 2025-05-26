@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"io/fs"
@@ -14,28 +13,6 @@ import (
 	"github.com/gobwas/glob"
 	gitignore "github.com/sabhiram/go-gitignore"
 )
-
-// FileInfo holds path information for a file.
-type FileInfo struct {
-	AbsPath   string // Absolute path to the file
-	RelPath   string // Path relative to the project root
-	IsDir     bool   // True if it's a directory
-	IsSymlink bool   // True if it's a symlink
-}
-
-// isGitRepo checks if the given directory is part of a Git repository.
-func isGitRepo(dir string) bool {
-	gitPath := filepath.Join(dir, ".git")
-	if _, err := os.Stat(gitPath); err == nil {
-		return true
-	}
-
-	// Check if we are in a worktree or a subdirectory of a repo
-	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	return err == nil && strings.TrimSpace(string(output)) == "true"
-}
 
 // GetProjectFiles lists files in a project directory.
 // rootDir: The root directory of the project.
@@ -196,7 +173,6 @@ func GetProjectFiles(
 				}
 
 				if gitIgnoreMatcher != nil {
-
 					if gitIgnoreMatcher.MatchesPath(relPath) {
 						if d.IsDir() {
 							return filepath.SkipDir
@@ -248,122 +224,4 @@ func GetProjectFiles(
 	})
 
 	return result, nil
-}
-
-// BuildFileTree generates a string representation of the file tree.
-func BuildFileTree(rootDir string, customIgnorePatterns []string, respectGitIgnore bool) (string, error) {
-	files, err := GetProjectFiles(rootDir, customIgnorePatterns, respectGitIgnore, nil, true)
-	if err != nil {
-		return "", fmt.Errorf("failed to get project files for tree: %w", err)
-	}
-
-	if len(files) == 0 {
-		return "Project is empty or all files are ignored.", nil
-	}
-
-	absRootDir, _ := filepath.Abs(rootDir)
-
-	var treeBuilder strings.Builder
-	treeBuilder.WriteString(filepath.Base(absRootDir) + "/\n")
-
-	dirContents := make(map[string][]string)
-	pathInfos := make(map[string]FileInfo)
-
-	for _, fi := range files {
-		pathInfos[fi.RelPath] = fi
-		parentDir := filepath.Dir(fi.RelPath)
-		if parentDir == "." {
-			parentDir = ""
-		}
-		dirContents[parentDir] = append(dirContents[parentDir], fi.RelPath)
-	}
-
-	for k := range dirContents {
-		sort.Strings(dirContents[k])
-	}
-
-	var buildSubTree func(dirRelPath string, indent string)
-	buildSubTree = func(currentDirRelPath string, indent string) {
-		key := currentDirRelPath
-		if currentDirRelPath == "." || currentDirRelPath == absRootDir || currentDirRelPath == string(filepath.Separator) {
-			key = ""
-		}
-
-		items := dirContents[key]
-		for i, itemRelPath := range items {
-			fi, ok := pathInfos[itemRelPath]
-			if !ok {
-				fmt.Fprintf(os.Stderr, "Warning: FileInfo not found for path %s in tree building\n", itemRelPath)
-				continue
-			}
-			baseName := filepath.Base(itemRelPath)
-
-			prefix := indent
-			if i == len(items)-1 {
-				prefix += "└── "
-			} else {
-				prefix += "├── "
-			}
-			treeBuilder.WriteString(prefix)
-			treeBuilder.WriteString(baseName)
-			if fi.IsDir {
-				treeBuilder.WriteString("/")
-			}
-			if fi.IsSymlink {
-				treeBuilder.WriteString(" (symlink)")
-			}
-			treeBuilder.WriteString("\n")
-
-			if fi.IsDir {
-				newIndent := indent
-				if i == len(items)-1 {
-					newIndent += "    "
-				} else {
-					newIndent += "│   "
-				}
-				buildSubTree(itemRelPath, newIndent)
-			}
-		}
-	}
-
-	buildSubTree("", "")
-	return treeBuilder.String(), nil
-}
-
-// ReadFileContent reads the content of a file into a string.
-func ReadFileContent(filePath string) (string, bool, error) {
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", false, fmt.Errorf("failed to read file %s: %w", filePath, err)
-	}
-
-	checkLen := 1024
-	if len(content) < checkLen {
-		checkLen = len(content)
-	}
-	if bytes.Contains(content[:checkLen], []byte{0}) {
-		return "", true, nil
-	}
-
-	return string(content), false, nil
-}
-
-// GetOutputWriter returns a writer to the specified output file or os.Stdout.
-func GetOutputWriter(outputDir string) (*bufio.Writer, *os.File, error) {
-	if outputDir == "" || outputDir == "-" {
-		return bufio.NewWriter(os.Stdout), nil, nil
-	}
-
-	dir := filepath.Dir(outputDir)
-	if dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return nil, nil, fmt.Errorf("failed to create output directory %s: %w", dir, err)
-		}
-	}
-
-	file, err := os.Create(outputDir)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create output file %s: %w", outputDir, err)
-	}
-	return bufio.NewWriter(file), file, nil
 }
