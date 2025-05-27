@@ -78,7 +78,23 @@ var allCmd = &cobra.Command{
 			defer writer.Flush()
 		}
 
-		// 3. Read content of each remaining file and concatenate
+		// 3. Generate and write tree
+		treeString, err := utils.BuildFileTree(allProjectDir, allIgnore, true, nil, true)
+		if err != nil {
+			return fmt.Errorf("failed to generate file tree: %w", err)
+		}
+
+		if _, err := writer.WriteString("--- START FILE: PROJECT STRUCTURE ---\n"); err != nil {
+			return fmt.Errorf("failed to write tree start marker: %w", err)
+		}
+		if _, err := writer.WriteString(treeString); err != nil {
+			return fmt.Errorf("failed to write tree content: %w", err)
+		}
+		if _, err := writer.WriteString("\n--- END FILE: PROJECT STRUCTURE ---\n\n"); err != nil {
+			return fmt.Errorf("failed to write tree end marker: %w", err)
+		}
+
+		// 4. Read content of each remaining file and concatenate
 		fmt.Fprintln(cmd.OutOrStdout(), "Concatenating files...")
 		for _, fileInfo := range filesToProcess {
 			// Skip directories and symlinks for concatenation

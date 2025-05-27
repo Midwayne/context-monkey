@@ -48,7 +48,9 @@ var treeCmd = &cobra.Command{
 		fmt.Fprintf(cmd.OutOrStdout(), "  Ignore Patterns: %v\n", treeIgnore)
 
 		// 1. Generate file tree string
-		treeString, err := utils.BuildFileTree(treeProjectDir, treeIgnore, true)
+		// TODO: Design consideration - include ignored files or not?
+		treeString, err := utils.BuildFileTree(treeProjectDir, treeIgnore, true, nil, true)
+
 		if err != nil {
 			return fmt.Errorf("failed to generate file tree: %w", err)
 		}
@@ -69,9 +71,6 @@ var treeCmd = &cobra.Command{
 		if _, err := writer.WriteString(treeString); err != nil {
 			return fmt.Errorf("failed to write tree to output: %w", err)
 		}
-		// FIX: Ensure a newline at the end if BuildFileTree doesn't guarantee it.
-		// (My current BuildFileTree implementation should end with a newline)
-		// writer.WriteString("\n")
 
 		fmt.Fprintln(cmd.OutOrStdout(), "File tree generated successfully.")
 		return nil

@@ -2,88 +2,98 @@ package utils
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
 
+// tree structure (intenarl)
+type TreeNode struct {
+	Name     string
+	IsDir    bool
+	Children map[string]*TreeNode
+}
+
 // BuildFileTree generates a string representation of the file tree.
-func BuildFileTree(rootDir string, customIgnorePatterns []string, respectGitIgnore bool) (string, error) {
-	files, err := GetProjectFiles(rootDir, customIgnorePatterns, respectGitIgnore, nil, true) // Calls GetProjectFiles
+func BuildFileTree(
+	rootDir string, customIgnorePatterns []string,
+	respectGitIgnore bool, specificFileArgs []string, includeDirsInResult bool) (string, error) {
+
+	files, err := GetProjectFiles(rootDir, customIgnorePatterns, respectGitIgnore, specificFileArgs, includeDirsInResult)
 	if err != nil {
-		return "", fmt.Errorf("failed to get project files for tree: %w", err)
+		return "", fmt.Errorf("failed to get project files: %w", err)
 	}
 
 	if len(files) == 0 {
 		return "Project is empty or all files are ignored.", nil
 	}
 
-	absRootDir, _ := filepath.Abs(rootDir)
+	root := &TreeNode{
+		Name:     filepath.Base(rootDir),
+		IsDir:    true,
+		Children: make(map[string]*TreeNode),
+	}
 
-	var treeBuilder strings.Builder
-	treeBuilder.WriteString(filepath.Base(absRootDir) + "/\n")
-
-	dirContents := make(map[string][]string)
-	pathInfos := make(map[string]FileInfo) // Uses FileInfo from types.go
-
+	// Build tree
 	for _, fi := range files {
-		pathInfos[fi.RelPath] = fi
-		parentDir := filepath.Dir(fi.RelPath)
-		if parentDir == "." {
-			parentDir = ""
-		}
-		dirContents[parentDir] = append(dirContents[parentDir], fi.RelPath)
-	}
-
-	for k := range dirContents {
-		sort.Strings(dirContents[k])
-	}
-
-	var buildSubTree func(dirRelPath string, indent string)
-	buildSubTree = func(currentDirRelPath string, indent string) {
-		key := currentDirRelPath
-		if currentDirRelPath == "." || currentDirRelPath == absRootDir || currentDirRelPath == string(filepath.Separator) {
-			key = ""
-		}
-
-		items := dirContents[key]
-		for i, itemRelPath := range items {
-			fi, ok := pathInfos[itemRelPath]
-			if !ok {
-				fmt.Fprintf(os.Stderr, "Warning: FileInfo not found for path %s in tree building\n", itemRelPath)
+		parts := strings.Split(fi.RelPath, string(filepath.Separator))
+		curr := root
+		for i, part := range parts {
+			if part == "." || part == "" {
 				continue
 			}
-			baseName := filepath.Base(itemRelPath)
+			isLast := i == len(parts)-1
 
-			prefix := indent
-			if i == len(items)-1 {
-				prefix += "└── "
-			} else {
-				prefix += "├── "
-			}
-			treeBuilder.WriteString(prefix)
-			treeBuilder.WriteString(baseName)
-			if fi.IsDir {
-				treeBuilder.WriteString("/")
-			}
-			if fi.IsSymlink {
-				treeBuilder.WriteString(" (symlink)")
-			}
-			treeBuilder.WriteString("\n")
-
-			if fi.IsDir {
-				newIndent := indent
-				if i == len(items)-1 {
-					newIndent += "    "
-				} else {
-					newIndent += "│   "
+			child, exists := curr.Children[part]
+			if !exists {
+				child = &TreeNode{
+					Name:     part,
+					IsDir:    fi.IsDir && isLast,
+					Children: make(map[string]*TreeNode),
 				}
-				buildSubTree(itemRelPath, newIndent)
+				// if it's an intermediate dir not explicitly returned, mark as dir
+				if !isLast {
+					child.IsDir = true
+				}
+				curr.Children[part] = child
+			}
+			curr = child
+		}
+	}
+
+	// Render tree
+	var b strings.Builder
+	b.WriteString(root.Name + "/\n")
+
+	var render func(node *TreeNode, prefix string, isLast bool)
+	render = func(node *TreeNode, prefix string, isLast bool) {
+		children := make([]*TreeNode, 0, len(node.Children))
+		for _, child := range node.Children {
+			children = append(children, child)
+		}
+		sort.Slice(children, func(i, j int) bool {
+			return children[i].Name < children[j].Name
+		})
+
+		for i, child := range children {
+			connector := "├── "
+			nextPrefix := prefix + "│   "
+			if i == len(children)-1 {
+				connector = "└── "
+				nextPrefix = prefix + "    "
+			}
+			b.WriteString(prefix + connector + child.Name)
+			if child.IsDir {
+				b.WriteString("/")
+			}
+			b.WriteString("\n")
+
+			if len(child.Children) > 0 {
+				render(child, nextPrefix, i == len(children)-1)
 			}
 		}
 	}
 
-	buildSubTree("", "")
-	return treeBuilder.String(), nil
+	render(root, "", true)
+	return b.String(), nil
 }
